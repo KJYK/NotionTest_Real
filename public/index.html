@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <title>Notion DB 실시간 세로 트리</title>
+  <title>Jinyoung's Thesis Journey</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
   <style>
@@ -19,7 +19,7 @@
     .pill { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: #0f1a36; color: #cfe3ff; }
     #msg { margin-top: 6px; font-size: 13px; color: var(--muted); }
 
-    main { padding: 14px; display: grid; grid-template-columns: 380px 1fr; gap: 14px; }
+    main { padding: 14px; display: grid; grid-template-columns: 1fr; gap: 0; }
     .panel { border: 1px solid var(--border); background: rgba(16,26,51,.55); border-radius: 14px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
     .hint { font-size: 13px; color: #bdd3ff; line-height: 1.5; }
     .hint code { background: #0e1833; padding: 2px 5px; border-radius: 6px; border: 1px solid var(--border); color: #a9c7ff; }
@@ -57,27 +57,18 @@
 </head>
 <body>
   <header>
-    <h1>Notion DB 실시간 세로 트리</h1>
+    <h1>Jinyoung's Thesis Journey</h1>
     <div class="toolbar">
-      <span class="tag" id="conn">SSE: 연결중...</span>
-      <span class="tag" id="last">갱신: -</span>
-      <span class="tag">Done 체크 항목은 반투명 처리</span>
+      <span class="tag" id="conn">SSE: Connecting...</span>
+      <span class="tag" id="last">Updated: -</span>
+      <span class="tag">Apply transparency to done items</span>
     </div>
     <div id="msg"></div>
   </header>
 
   <main>
-    <section class="panel">
-      <div class="hint">
-        <div style="margin-bottom:8px;"><b>설명</b></div>
-        • 이 화면은 <b>노션 데이터베이스</b>만을 읽어 <b>즉시 트리</b>로 보여줍니다.<br/>
-        • 노션에서 <code>item name</code>(제목), <code>upper</code>(부모 이름), <code>dependency</code>(쉼표 구분), <code>level</code>(숫자), 날짜들(<code>early/late</code>), <code>Done</code>(체크박스)을 사용하세요.<br/>
-        • 노션에서 수정하면 웹훅 → 서버 → 브라우저 <b>SSE</b>로 전달되어 <b>자동 갱신</b>됩니다(일부 이벤트는 최대 약 1분 지연).<br/>
-      </div>
-    </section>
-
     <section id="treePanel" class="panel">
-      <div class="legend">━ 구조(upper) / ⋯⋯ <span style="color:#ffd166">의존(dependency)</span></div>
+      <div class="legend">━ Structure (upper) / ⋯⋯ <span style="color:#ffd166">Dependency</span></div>
       <div id="treeContainer">
         <svg id="treeSvg" aria-label="세로 트리(노션)"></svg>
       </div>
@@ -107,16 +98,16 @@
     // UI 갱신
     async function reload() {
       try {
-        msg('노션에서 데이터 불러오는 중...');
+        msg('Data loading from Notion...');
         const items = await fetchItems();
         lastItems = items;              // ← 추가
         renderTree(lastItems); 
         const t = new Date();
         $("#last").textContent = `갱신: ${t.toLocaleString()}`;
-        msg('갱신 완료', 'ok');
+        msg('Update Complete', 'ok');
       } catch (e) {
         console.error(e);
-        msg('데이터 갱신 실패: ' + (e?.message || e), 'err');
+        msg('Update Fail: ' + (e?.message || e), 'err');
       }
     }
 
@@ -144,7 +135,7 @@
       }
       if (nodesData.length === 1) {
         svg.append("text").attr("x", 20).attr("y", 28)
-          .text("표시할 데이터가 없습니다. 노션 DB에 행을 추가하세요.")
+          .text("No Data to visualize. Please add some rows in the Dataframe.")
           .attr("fill", "#96a5c6").attr("font-size", 13);
         return;
       }
@@ -278,7 +269,7 @@
           it.early_finish ? `early finish: ${it.early_finish}` : null,
           it.late_finish ? `late finish: ${it.late_finish}` : null,
           it.done ? `Done: ✅` : null,
-          `클릭하면 하위 항목 접기/펼치기`
+          `Click to expand/collapse sub-items`
         ].filter(Boolean).join("\n");
       });
 
@@ -310,10 +301,10 @@
     // SSE 연결
     function connectSSE() {
       const es = new EventSource('/api/stream', { withCredentials: false });
-      es.addEventListener('hello', () => { $("#conn").textContent = 'SSE: 연결됨'; });
+      es.addEventListener('hello', () => { $("#conn").textContent = 'SSE: Connected'; });
       es.addEventListener('ping', () => { /* keepalive */ });
       es.addEventListener('reload', () => { reload(); });
-      es.onerror = () => { $("#conn").textContent = 'SSE: 재연결 시도중...'; };
+      es.onerror = () => { $("#conn").textContent = 'SSE: Trying to Re-Connect...'; };
       return es;
     }
 
