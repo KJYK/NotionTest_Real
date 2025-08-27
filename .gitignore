@@ -1,0 +1,11 @@
+# Node dependencies
+node_modules/
+
+# Env secrets
+.env
+.env.*
+
+# OS & editor junk
+.DS_Store
+Thumbs.db
+npm-debug.log*
