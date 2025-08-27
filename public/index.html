@@ -103,7 +103,7 @@
         lastItems = items;              // ← 추가
         renderTree(lastItems); 
         const t = new Date();
-        $("#last").textContent = `갱신: ${t.toLocaleString()}`;
+        $("#last").textContent = `Updated: ${t.toLocaleString()}`;
         msg('Update Complete', 'ok');
       } catch (e) {
         console.error(e);
