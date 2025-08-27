@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Notion DB 실시간 세로 트리</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1324; --panel: #101a33; --border: #23335b;
+      --txt: #eaf0ff; --muted: #9fb2d9; --accent: #69d2ff; --accent2: #ffd166;
+      --ok: #36d399; --warn: #f59e0b; --err: #f43f5e;
+    }
+    html, body { height: 100%; margin: 0; background: linear-gradient(180deg,#0b1324,#0f1b3a); color: var(--txt); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", Arial; }
+    header { position: sticky; top: 0; z-index: 5; padding: 14px 16px; border-bottom: 1px solid var(--border); background: rgba(16,26,51,.6); backdrop-filter: blur(6px); }
+    h1 { font-size: 18px; margin: 0 0 8px 0; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .tag { border: 1px solid var(--border); background: #0f1b33; border-radius: 999px; padding: 3px 8px; font-size: 12px; color: var(--muted); }
+    .pill { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: #0f1a36; color: #cfe3ff; }
+    #msg { margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+    main { padding: 14px; display: grid; grid-template-columns: 380px 1fr; gap: 14px; }
+    .panel { border: 1px solid var(--border); background: rgba(16,26,51,.55); border-radius: 14px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+    .hint { font-size: 13px; color: #bdd3ff; line-height: 1.5; }
+    .hint code { background: #0e1833; padding: 2px 5px; border-radius: 6px; border: 1px solid var(--border); color: #a9c7ff; }
+
+    /* 트리 영역 */
+    #treePanel { display: grid; grid-template-rows: auto 1fr; gap: 10px; }
+    #treeContainer {
+      min-height: 620px;
+      height: 70vh;
+      border: 1px solid var(--border);
+      background: #0f1a36;
+      border-radius: 12px;
+      /* 여기 ↓↓↓ 두 줄로 가로/세로 스크롤을 확실히 켭니다 */
+      overflow-x: auto;
+      overflow-y: auto;
+      /* 스크롤바가 나타날 때 레이아웃 점프 줄이기(지원 브라우저에서) */
+      scrollbar-gutter: stable both-edges;
+      position: relative;
+    }
+    #treeSvg { display: block; width: auto; height: auto; }
+
+    .link { fill: none; stroke: #2a8cff; stroke-opacity: .6; stroke-width: 1.6px; }
+    .link-root { stroke-opacity: .3; stroke-dasharray: 4 4; }
+    .dep-link { fill: none; stroke: var(--accent2); stroke-width: 1.2px; stroke-dasharray: 5 4; opacity: .85; marker-end: url(#arrow-yellow); pointer-events: none; }
+
+    .node { cursor: pointer; }     /* 클릭 가능 표시 */
+    .node rect { fill: #142652; stroke: #2753a3; stroke-width: 1.2px; rx: 7; ry: 7; }
+    .node:hover rect { stroke-width: 1.8px; }
+    .toggle { fill: #ffd166; }     /* 접기/펼치기 표시(삼각형) 색상 */
+    .node text { font-size: 12.5px; fill: #eef6ff; dominant-baseline: middle; paint-order: stroke; stroke: rgba(0,0,0,.25); stroke-width: 2px; }
+    .node.done { opacity: .35; } /* Done 체크 시 반투명 처리 */
+    .legend { position: absolute; right: 10px; top: 10px; font-size: 12px; color: var(--muted); background: rgba(0,0,0,.25); border: 1px solid var(--border); padding: 6px 8px; border-radius: 9px; }
+
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Notion DB 실시간 세로 트리</h1>
+    <div class="toolbar">
+      <span class="tag" id="conn">SSE: 연결중...</span>
+      <span class="tag" id="last">갱신: -</span>
+      <span class="tag">Done 체크 항목은 반투명 처리</span>
+    </div>
+    <div id="msg"></div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="hint">
+        <div style="margin-bottom:8px;"><b>설명</b></div>
+        • 이 화면은 <b>노션 데이터베이스</b>만을 읽어 <b>즉시 트리</b>로 보여줍니다.<br/>
+        • 노션에서 <code>item name</code>(제목), <code>upper</code>(부모 이름), <code>dependency</code>(쉼표 구분), <code>level</code>(숫자), 날짜들(<code>early/late</code>), <code>Done</code>(체크박스)을 사용하세요.<br/>
+        • 노션에서 수정하면 웹훅 → 서버 → 브라우저 <b>SSE</b>로 전달되어 <b>자동 갱신</b>됩니다(일부 이벤트는 최대 약 1분 지연).<br/>
+      </div>
+    </section>
+
+    <section id="treePanel" class="panel">
+      <div class="legend">━ 구조(upper) / ⋯⋯ <span style="color:#ffd166">의존(dependency)</span></div>
+      <div id="treeContainer">
+        <svg id="treeSvg" aria-label="세로 트리(노션)"></svg>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const msg = (t, tone="info") => {
+      const el = $("#msg");
+      el.textContent = t || "";
+      el.style.color = tone === "ok" ? "var(--ok)" : tone === "warn" ? "var(--warn)" :
+                       tone === "err" ? "var(--err)" : "var(--muted)";
+    };
+
+    // 데이터 가져오기
+    async function fetchItems() {
+      const r = await fetch('/api/items', { headers: { 'Accept': 'application/json' } });
+      if (!r.ok) throw new Error('items fetch failed');
+      const { items } = await r.json();
+      return items || [];
+    }
+    // 접기/펼치기 상태 저장 (노드 이름 기준)
+    let collapsed = new Set();
+    // 마지막으로 그린 데이터(노드 클릭 후 다시 그릴 때 사용)
+    let lastItems = [];
+    // UI 갱신
+    async function reload() {
+      try {
+        msg('노션에서 데이터 불러오는 중...');
+        const items = await fetchItems();
+        lastItems = items;              // ← 추가
+        renderTree(lastItems); 
+        const t = new Date();
+        $("#last").textContent = `갱신: ${t.toLocaleString()}`;
+        msg('갱신 완료', 'ok');
+      } catch (e) {
+        console.error(e);
+        msg('데이터 갱신 실패: ' + (e?.message || e), 'err');
+      }
+    }
+
+    // 트리 렌더링
+    function renderTree(items) {
+      const svg = d3.select("#treeSvg");
+      const container = document.querySelector("#treeContainer");
+      svg.selectAll("*").remove();
+
+      // 1) 라벨 폭(픽셀) 측정
+      const padX = 12, boxH = 26;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.font = '12.5px Segoe UI, Roboto, "Noto Sans KR", Arial';
+      const measure = t => Math.ceil(ctx.measureText(String(t||'')).width);
+
+      const items2 = items.map(it => ({ ...it, _bw: Math.max(72, measure(it.name||'') + padX*2) }));
+
+      // 2) 계층 데이터
+      const names = new Set(items2.map(d => d.name).filter(Boolean));
+      const nodesData = [{ name: "ROOT", _root: true, _bw: 40 }];
+      for (const it of items2) {
+        const parent = it.upper && names.has(it.upper) ? it.upper : "ROOT";
+        nodesData.push({ ...it, upperNormalized: parent });
+      }
+      if (nodesData.length === 1) {
+        svg.append("text").attr("x", 20).attr("y", 28)
+          .text("표시할 데이터가 없습니다. 노션 DB에 행을 추가하세요.")
+          .attr("fill", "#96a5c6").attr("font-size", 13);
+        return;
+      }
+
+      const stratify = d3.stratify().id(d => d.name).parentId(d => d._root ? null : d.upperNormalized);
+      let root = stratify(nodesData);
+
+      // 3) 접기/펼치기 적용 (함수로 정의하고 한 번만 호출)
+      function applyCollapse(node) {
+        if (collapsed.has(node.data.name) && node.children) {
+          node._children = node.children;
+          node.children = null;
+        }
+        (node.children || node._children || []).forEach(applyCollapse);
+      }
+      applyCollapse(root);
+
+      // 4) 형제 이름순 정렬
+      function sortTree(node) {
+        const byName = (a,b) =>
+          d3.ascending((a.data.name||"").toLowerCase(), (b.data.name||"").toLowerCase());
+        if (node.children)  node.children.sort(byName);
+        if (node._children) node._children.sort(byName);
+        (node.children || node._children || []).forEach(sortTree);
+      }
+      sortTree(root);
+
+      // 5) 레이아웃 (정의 후 호출)
+      const depthH = 200;
+      const treeLayout = d3.tree()
+        .nodeSize([1, depthH])        // x축 1px 단위
+        .separation((a,b) => {        // 실제 픽셀 간격 반환
+          const wa = a.data._bw || 80, wb = b.data._bw || 80;
+          const gap = (a.parent === b.parent) ? 20 : 32;
+          return (wa/2 + wb/2 + gap);
+        });
+      treeLayout(root);
+
+      // 6) 좌표/크기 계산 + 스크롤 생기도록 svg width/height를 "픽셀"로 지정
+      // 좌표/크기 계산 (가로 스크롤 확실히 생기게)
+      const leftPad = 60, rightPad = 100, topPad = 50, bottomPad = 120;
+
+      // 현재 레이아웃 결과의 최소/최대
+      const minX = d3.min(root.descendants(), d => d.x) ?? 0;
+      const maxX = d3.max(root.descendants(), d => d.x) ?? 0;
+      const minY = d3.min(root.descendants(), d => d.y) ?? 0;
+      const maxY = d3.max(root.descendants(), d => d.y) ?? 0;
+
+      // 좌상단으로 항상 살짝 여백 있게 당기기
+      const shiftX = leftPad - minX;
+      const shiftY = topPad  - minY;
+      root.each(d => { d.x += shiftX; d.y += shiftY; });
+
+      // 실제 컨텐츠 크기(가로/세로)
+      const contentWidth  = Math.ceil((maxX - minX) + leftPad + rightPad);
+      const contentHeight = Math.ceil((maxY - minY) + topPad + bottomPad);
+
+      // 스크롤이 생기도록 width/height를 '픽셀'로 지정
+      svg.attr("width",  contentWidth)
+        .attr("height", contentHeight)
+        .attr("viewBox", `0 0 ${contentWidth} ${contentHeight}`);
+
+      // 7) 화살표 마커
+      const defs = svg.append("defs");
+      defs.append("marker")
+        .attr("id", "arrow-yellow")
+        .attr("viewBox", "0 0 10 10")
+        .attr("refX", 10).attr("refY", 5)
+        .attr("markerWidth", 6).attr("markerHeight", 6)
+        .attr("orient", "auto-start-reverse")
+        .append("path").attr("d","M 0 0 L 10 5 L 0 10 z").attr("fill","#ffd166");
+
+      const g = svg.append("g");
+
+      // 8) 구조 링크
+      const linkGen = d3.linkVertical().x(d => d.x).y(d => d.y);
+      g.append("g").selectAll("path")
+        .data(root.links())
+        .join("path")
+        .attr("class", d => d.source.data.name === "ROOT" ? "link link-root" : "link")
+        .attr("d", linkGen);
+
+      // 9) 노드 (가운데 정렬 + 클릭 토글)
+      const visNodes = root.descendants().filter(d => d.data.name !== "ROOT");
+      const nodeSel = g.append("g").selectAll("g.node")
+        .data(visNodes, d => d.data.name)
+        .join("g")
+        .attr("class", d => `node${d.data.done ? ' done' : ''}`)
+        .attr("transform", d => `translate(${d.x},${d.y})`)
+        .on("click", (ev, d) => {
+          const name = d.data.name;
+          if (collapsed.has(name)) collapsed.delete(name);
+          else collapsed.add(name);
+          renderTree(lastItems);     // 서버 호출 없이 다시 그림
+        });
+
+      // 토글(삼각형) - 박스 왼쪽
+      nodeSel.append("path")
+        .attr("class", "toggle")
+        .attr("transform", d => `translate(${-d.data._bw/2 - 10},0)`)
+        .attr("d", d => {
+          const hasKids = (d.children && d.children.length) || (d._children && d._children.length);
+          if (!hasKids) return "";
+          const isCollapsed = !!d._children && !d.children;
+          return isCollapsed ? "M 0 -5 L 8 0 L 0 5 Z" : "M 0 -4 L 8 -4 L 4 4 Z";
+        });
+
+      // 박스(가운데 정렬)
+      nodeSel.append("rect")
+        .attr("x", d => -d.data._bw/2)
+        .attr("y", -boxH/2)
+        .attr("width", d => d.data._bw)
+        .attr("height", boxH);
+
+      // 텍스트(가운데 정렬)
+      nodeSel.append("text")
+        .attr("text-anchor", "middle")
+        .attr("x", 0)
+        .attr("y", 0)
+        .text(d => d.data.name);
+
+      nodeSel.append("title").text(d => {
+        const it = d.data;
+        return [
+          `name: ${it.name}`,
+          it.level != null ? `level: ${it.level}` : null,
+          it.upper ? `upper: ${it.upper}` : null,
+          it.dependency ? `dependency: ${it.dependency}` : null,
+          it.early_start ? `early start: ${it.early_start}` : null,
+          it.late_start ? `late start: ${it.late_start}` : null,
+          it.early_finish ? `early finish: ${it.early_finish}` : null,
+          it.late_finish ? `late finish: ${it.late_finish}` : null,
+          it.done ? `Done: ✅` : null,
+          `클릭하면 하위 항목 접기/펼치기`
+        ].filter(Boolean).join("\n");
+      });
+
+      // 10) 의존 링크(점선)
+      const pos = new Map();
+      root.descendants().forEach(n => { if (n.data && n.data.name) pos.set(n.data.name, { x: n.x, y: n.y }); });
+      const depEdges = [];
+      for (const it of items2) {
+        if (!it.dependency) continue;
+        const arr = String(it.dependency).split(",").map(s => s.trim()).filter(Boolean);
+        for (const dep of arr) {
+          if (pos.has(dep) && pos.has(it.name)) {
+            const s = pos.get(dep), t = pos.get(it.name);
+            depEdges.push({ s, t, from: dep, to: it.name });
+          }
+        }
+      }
+      g.append("g").selectAll("path.dep-link")
+        .data(depEdges)
+        .join("path")
+        .attr("class", "dep-link")
+        .attr("d", d => {
+          const mx = (d.s.x + d.t.x) / 2;
+          return `M ${d.s.x} ${d.s.y} C ${mx} ${d.s.y}, ${mx} ${d.t.y}, ${d.t.x} ${d.t.y}`;
+        })
+        .append("title").text(d => `dependency: ${d.from} → ${d.to}`);
+    }
+
+    // SSE 연결
+    function connectSSE() {
+      const es = new EventSource('/api/stream', { withCredentials: false });
+      es.addEventListener('hello', () => { $("#conn").textContent = 'SSE: 연결됨'; });
+      es.addEventListener('ping', () => { /* keepalive */ });
+      es.addEventListener('reload', () => { reload(); });
+      es.onerror = () => { $("#conn").textContent = 'SSE: 재연결 시도중...'; };
+      return es;
+    }
+
+    // 최초 구동
+    (async () => {
+      connectSSE();
+      await reload(); // 초기 1회 로드
+      // 만약 웹훅 설정 전이라면 안전망으로 60초 폴링
+      setInterval(() => reload(), 60000);
+    })();
+  </script>
+</body>
+</html>
